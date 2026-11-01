@@ -1,0 +1,70 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: Windows
+          - os: macos-latest
+            name: macOS
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            cmake -B build -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
+              -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13
+          else
+            cmake -B build
+          fi
+
+      - name: Build
+        run: cmake --build build --config Release --target Amolizer_VST3 --parallel
+
+      - name: Package
+        shell: bash
+        run: |
+          cd build/Amolizer_artefacts/Release/VST3
+          OUT="$GITHUB_WORKSPACE/Amolizer-${{ matrix.name }}-VST3.zip"
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            ditto -c -k --keepParent Amolizer.vst3 "$OUT"
+          else
+            7z a "$OUT" Amolizer.vst3
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Amolizer-${{ matrix.name }}-VST3
+          path: Amolizer-${{ matrix.name }}-VST3.zip
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: Amolizer-*-VST3.zip
